@@ -5,6 +5,5 @@
 int
 main()
 {
-  printf("hello world\n");
-  return 0;
+  exit(0, "Goodbye World xv6\n");
 }
