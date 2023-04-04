@@ -55,6 +55,8 @@ procinit(void)
     initlock(&p->lock, "proc");
     p->state = UNUSED;
     p->kstack = KSTACK((int)(p - proc));
+    p->ps_priority = 5;
+    p->accumulator = 0;
   }
 }
 
@@ -170,6 +172,9 @@ freeproc(struct proc* p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  //Task 5 addition
+  p->ps_priority = 5;
+  p->accumulator = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -324,6 +329,13 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  long long cur_min = get_min_acc();
+
+  acquire(&np->lock);
+  //new addition
+  np->accumulator = cur_min;
+  release(&np->lock);
+
   return pid;
 }
 
@@ -460,25 +472,40 @@ scheduler(void)
 
   c->proc = 0;
   for (;;) {
+    // Updated for Task 5
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    p = get_min_acc_proc();
+    acquire(&p->lock);
+    if (p->state == RUNNABLE) {
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
 
-    for (p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
     }
+    release(&p->lock);
+    // for (p = proc; p < &proc[NPROC]; p++) {
+    //   acquire(&p->lock);
+    //   if (p->state == RUNNABLE) {
+    //     // Switch to chosen process.  It is the process's job
+    //     // to release its lock and then reacquire it
+    //     // before jumping back to us.
+    //     p->state = RUNNING;
+    //     c->proc = p;
+    //     swtch(&c->context, &p->context);
+
+    //     // Process is done running for now.
+    //     // It should have changed its p->state before coming back.
+    //     c->proc = 0;
+    //   }
+    //   release(&p->lock);
+    // }
   }
 }
 
@@ -581,9 +608,11 @@ wakeup(void* chan)
 
   for (p = proc; p < &proc[NPROC]; p++) {
     if (p != myproc()) {
+      long long cur_min = get_min_acc();
       acquire(&p->lock);
       if (p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        p->accumulator = cur_min;
       }
       release(&p->lock);
     }
@@ -599,12 +628,14 @@ kill(int pid)
   struct proc* p;
 
   for (p = proc; p < &proc[NPROC]; p++) {
+    long long cur_min = get_min_acc();
     acquire(&p->lock);
     if (p->pid == pid) {
       p->killed = 1;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
+        p->accumulator = cur_min;
       }
       release(&p->lock);
       return 0;
@@ -693,4 +724,56 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+long long
+get_min_acc(void)
+{
+  struct proc* p;
+  long long min = 0;
+  int found = 0;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING) {
+      if (found == 0) {
+        found = 1;
+        min = p->accumulator;
+      }
+      else {
+        if(p->accumulator < min){
+          min  = p->accumulator;
+        }
+      }
+    }
+    release(&p->lock);
+  }
+  return min;
+}
+
+struct proc*
+get_min_acc_proc(void)
+{
+  struct proc* p;
+  struct proc* min_proc = proc;
+  long long min = 0;
+  int found = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING) {
+      if (found == 0) {
+        found = 1;
+        min = p->accumulator;
+        min_proc = p;
+      }
+      else {
+        if (p->accumulator < min) {
+          min = p->accumulator;
+          min_proc = p;
+        }
+      }
+    }
+    release(&p->lock);
+  }
+  return min_proc;
 }
