@@ -472,25 +472,11 @@ scheduler(void)
 
   c->proc = 0;
   for (;;) {
-    // Updated for Task 5
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-    p = get_min_acc_proc();
-    acquire(&p->lock);
-    if (p->state == RUNNABLE) {
-      // Switch to chosen process.  It is the process's job
-      // to release its lock and then reacquire it
-      // before jumping back to us.
-      p->state = RUNNING;
-      c->proc = p;
-      swtch(&c->context, &p->context);
+    //   // Updated for Task 5
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
-    }
-    release(&p->lock);
-    // for (p = proc; p < &proc[NPROC]; p++) {
+    //   p = get_min_acc_proc();
     //   acquire(&p->lock);
     //   if (p->state == RUNNABLE) {
     //     // Switch to chosen process.  It is the process's job
@@ -505,7 +491,22 @@ scheduler(void)
     //     c->proc = 0;
     //   }
     //   release(&p->lock);
-    // }
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }
   }
 }
 
@@ -741,8 +742,8 @@ get_min_acc(void)
         min = p->accumulator;
       }
       else {
-        if(p->accumulator < min){
-          min  = p->accumulator;
+        if (p->accumulator < min) {
+          min = p->accumulator;
         }
       }
     }
@@ -752,7 +753,7 @@ get_min_acc(void)
 }
 
 struct proc*
-get_min_acc_proc(void)
+  get_min_acc_proc(void)
 {
   struct proc* p;
   struct proc* min_proc = proc;
