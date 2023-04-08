@@ -89,3 +89,35 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// Updates process priority (0, 1 or 2)
+// Returns 0 on success and -1 on failure
+uint64
+sys_set_cfs_priority(void)
+{
+  int priority;
+  argint(0, &priority);
+  if(priority == 0){
+    myproc()->cfs_priority = 75;
+  }
+  else if(priority == 1){
+    myproc()->cfs_priority = 100;
+  }
+  else if(priority == 2){
+    myproc()->cfs_priority = 125;
+  }
+  else{
+    return -1;
+  }
+  return 0;
+}
+
+uint64
+sys_get_cfs_stats(void)
+{
+  int pid;
+  uint64 data;
+  argint(0, &pid);
+  argaddr(1, &data);
+  return get_cfs_stats(pid, data);
+}

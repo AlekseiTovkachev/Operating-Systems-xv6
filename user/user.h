@@ -22,6 +22,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int set_cfs_priority(int);
+int get_cfs_stats(int, int*);
 
 // ulib.c
 int stat(const char*, struct stat*);
