@@ -22,3 +22,6 @@
 #define SYS_close  21
 #define SYS_set_cfs_priority  22
 #define SYS_get_cfs_stats     23
+#define SYS_set_ps_priority     24
+#define SYS_memsize    25
+#define SYS_set_policy    26

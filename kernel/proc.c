@@ -15,6 +15,8 @@ struct proc* initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
+int sched_policy;
+
 extern void forkret(void);
 static void freeproc(struct proc* p);
 
@@ -56,6 +58,11 @@ procinit(void)
     p->state = UNUSED;
     // Task 6 addition
     p->cfs_priority = 100;
+
+    // Task 5 addition
+    p->ps_priority = 5;
+    p->accumulator = 0;
+
     p->kstack = KSTACK((int)(p - proc));
   }
 }
@@ -172,6 +179,11 @@ freeproc(struct proc* p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // Task 5 addition
+  p->ps_priority = 5;
+  p->accumulator = 0;
+
   // Task 6 addition
   p->cfs_priority = 100;
   p->retime = 0;
@@ -333,6 +345,13 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  long long cur_min = get_min_acc();
+
+  acquire(&np->lock);
+  //new addition
+  np->accumulator = cur_min;
+  release(&np->lock);
+
   return pid;
 }
 
@@ -355,7 +374,7 @@ reparent(struct proc* p)
 // An exited process remains in the zombie state
 // until its parent calls wait().
 void
-exit(int status)
+exit(int status, char* exit_msg)
 {
   struct proc* p = myproc();
 
@@ -388,6 +407,8 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+  //new addition
+  strncpy(p->exit_msg, exit_msg, 32);
 
   release(&wait_lock);
 
@@ -396,10 +417,56 @@ exit(int status)
   panic("zombie exit");
 }
 
+// // Exit the current process.  Does not return.
+// // An exited process remains in the zombie state
+// // until its parent calls wait().
+// void
+// exit(int status)
+// {
+//   struct proc* p = myproc();
+
+//   if (p == initproc)
+//     panic("init exiting");
+
+//   // Close all open files.
+//   for (int fd = 0; fd < NOFILE; fd++) {
+//     if (p->ofile[fd]) {
+//       struct file* f = p->ofile[fd];
+//       fileclose(f);
+//       p->ofile[fd] = 0;
+//     }
+//   }
+
+//   begin_op();
+//   iput(p->cwd);
+//   end_op();
+//   p->cwd = 0;
+
+//   acquire(&wait_lock);
+
+//   // Give any children to init.
+//   reparent(p);
+
+//   // Parent might be sleeping in wait().
+//   wakeup(p->parent);
+
+//   acquire(&p->lock);
+
+//   p->xstate = status;
+//   p->state = ZOMBIE;
+
+//   release(&wait_lock);
+
+//   // Jump into the scheduler, never to return.
+//   sched();
+//   panic("zombie exit");
+// }
+
 // Wait for a child process to exit and return its pid.
+// Returns the exit message of the process in the second pointer
 // Return -1 if this process has no children.
 int
-wait(uint64 addr)
+wait(uint64 addr, char* exit_msg)
 {
   struct proc* pp;
   int havekids, pid;
@@ -419,6 +486,12 @@ wait(uint64 addr)
         if (pp->state == ZOMBIE) {
           // Found one.
           pid = pp->pid;
+          if (exit_msg != 0 && copyout(p->pagetable, (uint64)exit_msg, (char*)&pp->exit_msg,
+            sizeof(pp->exit_msg)) < 0) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
           if (addr != 0 && copyout(p->pagetable, addr, (char*)&pp->xstate,
             sizeof(pp->xstate)) < 0) {
             release(&pp->lock);
@@ -445,6 +518,56 @@ wait(uint64 addr)
   }
 }
 
+
+// // Wait for a child process to exit and return its pid.
+// // Return -1 if this process has no children.
+// int
+// wait(uint64 addr)
+// {
+//   struct proc* pp;
+//   int havekids, pid;
+//   struct proc* p = myproc();
+
+//   acquire(&wait_lock);
+
+//   for (;;) {
+//     // Scan through table looking for exited children.
+//     havekids = 0;
+//     for (pp = proc; pp < &proc[NPROC]; pp++) {
+//       if (pp->parent == p) {
+//         // make sure the child isn't still in exit() or swtch().
+//         acquire(&pp->lock);
+
+//         havekids = 1;
+//         if (pp->state == ZOMBIE) {
+//           // Found one.
+//           pid = pp->pid;
+//           if (addr != 0 && copyout(p->pagetable, addr, (char*)&pp->xstate,
+//             sizeof(pp->xstate)) < 0) {
+//             release(&pp->lock);
+//             release(&wait_lock);
+//             return -1;
+//           }
+//           freeproc(pp);
+//           release(&pp->lock);
+//           release(&wait_lock);
+//           return pid;
+//         }
+//         release(&pp->lock);
+//       }
+//     }
+
+//     // No point waiting if we don't have any children.
+//     if (!havekids || killed(p)) {
+//       release(&wait_lock);
+//       return -1;
+//     }
+
+//     // Wait for a child to exit.
+//     sleep(p, &wait_lock);  //DOC: wait-sleep
+//   }
+// }
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -458,45 +581,78 @@ scheduler(void)
   struct proc* p;
   struct cpu* c = mycpu();
 
+  sched_policy = DEF_POLICY;
+
   c->proc = 0;
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
+    switch (sched_policy) {
+    case DEF_POLICY:
+      ///Original scheduler
+      for (p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (p->state == RUNNABLE) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-    // Receiving a runnable process with minimal vruntime
-    p = get_cfs_proc();
-    acquire(&p->lock);
-    if (p->state == RUNNABLE) {
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+        }
+        release(&p->lock);
+      }
+      break;
+    case PS_POLICY:
+      /// PS
 
-      // Switch to chosen process.  It is the process's job
-      // to release its lock and then reacquire it
-      // before jumping back to us.
-      p->state = RUNNING;
-      c->proc = p;
-      swtch(&c->context, &p->context);
+      p = get_min_acc_proc();
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
 
+      ///PS  
+      break;
+    case CFS_POLICY:
+      ///CFS
+
+      //Receiving a runnable process with minimal vruntime
+      p = get_cfs_proc();
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+
+      }
+      release(&p->lock);
+
+      ///CFS
+      break;
     }
-    release(&p->lock);
-    // for (p = proc; p < &proc[NPROC]; p++) {
-    //   acquire(&p->lock);
-    //   if (p->state == RUNNABLE) {
-    //     // Switch to chosen process.  It is the process's job
-    //     // to release its lock and then reacquire it
-    //     // before jumping back to us.
-    //     p->state = RUNNING;
-    //     c->proc = p;
-    //     swtch(&c->context, &p->context);
-
-    //     // Process is done running for now.
-    //     // It should have changed its p->state before coming back.
-    //     c->proc = 0;
-    //   }
-    //   release(&p->lock);
-    // }
   }
 }
 
@@ -596,12 +752,13 @@ void
 wakeup(void* chan)
 {
   struct proc* p;
-
+  long long cur_min = get_min_acc();
   for (p = proc; p < &proc[NPROC]; p++) {
     if (p != myproc()) {
       acquire(&p->lock);
       if (p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        p->accumulator = cur_min;
       }
       release(&p->lock);
     }
@@ -615,14 +772,16 @@ int
 kill(int pid)
 {
   struct proc* p;
-
+  long long cur_min = get_min_acc();
   for (p = proc; p < &proc[NPROC]; p++) {
+
     acquire(&p->lock);
     if (p->pid == pid) {
       p->killed = 1;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
+        p->accumulator = cur_min;
       }
       release(&p->lock);
       return 0;
@@ -744,7 +903,7 @@ struct proc*
   long long min_vruntime = -1;
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if (p->state == RUNNABLE || p->state == RUNNING) {
+    if (p->state == RUNNABLE /*|| p->state == RUNNING*/) {
       long long state_vruntime = p->cfs_priority * (p->rtime / (p->rtime + p->retime + p->stime));
       if (min_vruntime == -1) {
         min_vruntime = state_vruntime;
@@ -780,14 +939,73 @@ get_cfs_stats(int pid, uint64 addr)
       data[2] = p->stime;
       data[3] = p->retime;
 
-      if(either_copyout(1, addr, (void*)data, sizeof(data)) < 0){
+      if (either_copyout(1, addr, (void*)data, sizeof(data)) < 0) {
         release(&p->lock);
         return -1;
-      } 
+      }
       release(&p->lock);
       return 0;
     }
     release(&p->lock);
   }
   return -1;
+}
+
+struct proc*
+  get_min_acc_proc(void)
+{
+  struct proc* p;
+  struct proc* min_proc = proc;
+  long long min = 0;
+  int found = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE || p->state == RUNNING) {
+      if (found == 0) {
+        found = 1;
+        min = p->accumulator;
+        min_proc = p;
+      }
+      else {
+        if (p->accumulator < min) {
+          min = p->accumulator;
+          min_proc = p;
+        }
+      }
+    }
+    release(&p->lock);
+  }
+  return min_proc;
+}
+
+long long
+get_min_acc(void)
+{
+  struct proc* p;
+  long long min = 0;
+  int found = 0;
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE /*|| p->state == RUNNING*/) {
+      if (found == 0) {
+        found = 1;
+        min = p->accumulator;
+      }
+      else {
+        if (p->accumulator < min) {
+          min = p->accumulator;
+        }
+      }
+    }
+    release(&p->lock);
+  }
+  return min;
+}
+
+int set_policy(int policy) {
+  if ((policy < 0) || (policy > 2))
+    return -1;
+  sched_policy = policy;
+  return 0;
 }

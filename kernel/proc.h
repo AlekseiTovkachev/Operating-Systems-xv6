@@ -95,6 +95,8 @@ struct proc {
   int rtime;                   // Process run time
   int stime;                   // Process sleep time
   int retime;                  // Process runnable time
+  long long accumulator;       // Process accumulator for priority scheduling
+  int ps_priority;             // Process priority for priority scheduling
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
@@ -108,4 +110,5 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  char exit_msg[32];           // Process exit message
 };

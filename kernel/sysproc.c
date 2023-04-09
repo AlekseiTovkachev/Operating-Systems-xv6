@@ -10,10 +10,22 @@ uint64
 sys_exit(void)
 {
   int n;
+  char exit_msg[32];
+  argstr(1, exit_msg, 32);
   argint(0, &n);
-  exit(n);
+  exit(n, exit_msg);
   return 0;  // not reached
 }
+
+
+// uint64
+// sys_exit(void)
+// {
+//   int n;
+//   argint(0, &n);
+//   exit(n);
+//   return 0;  // not reached
+// }
 
 uint64
 sys_getpid(void)
@@ -27,13 +39,24 @@ sys_fork(void)
   return fork();
 }
 
+// uint64
+// sys_wait(void)
+// {
+//   uint64 p;
+//   argaddr(0, &p);
+//   return wait(p);
+// }
+
 uint64
 sys_wait(void)
 {
   uint64 p;
+  uint64 exit_msg;
   argaddr(0, &p);
-  return wait(p);
+  argaddr(1, &exit_msg);
+  return wait(p, (char*)exit_msg);
 }
+
 
 uint64
 sys_sbrk(void)
@@ -120,4 +143,34 @@ sys_get_cfs_stats(void)
   argint(0, &pid);
   argaddr(1, &data);
   return get_cfs_stats(pid, data);
+}
+
+uint64
+sys_set_ps_priority(void)
+{
+  int n;
+  struct proc* p = myproc();
+  argint(0, &n);
+  if ((n < 1) || (n > 10)) {
+    return -1;
+  }
+  acquire(&p->lock);
+  p->ps_priority = n;
+  release(&p->lock);
+  return 0;
+}
+
+uint64
+sys_memsize(void)
+{
+  struct proc* p = myproc();
+  return p->sz;
+}
+
+uint64
+sys_set_policy(void)
+{
+  int policy;
+  argint(0, &policy);
+  return set_policy(policy);
 }
