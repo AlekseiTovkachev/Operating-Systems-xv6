@@ -104,11 +104,4 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  char exit_msg[32];           // Exit message for updated exit system call
-  long long accumulator;       // Scheduling accumulator
-  int ps_priority;             // Process prioruty (between 1 and 10)
 };
-
-
-struct proc*  get_min_acc_proc(void);
-long long get_min_acc(void);

@@ -30,8 +30,7 @@ trapinithart(void)
 }
 
 //
-// handle an interrupt, exception, or system call fr
-
+// handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
 //
 void
@@ -55,7 +54,7 @@ usertrap(void)
     // system call
 
     if(killed(p))
-      exit(-1, "");
+      exit(-1);
 
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
@@ -75,13 +74,11 @@ usertrap(void)
   }
 
   if(killed(p))
-    exit(-1, "");
+    exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2){
-    p->accumulator += p->ps_priority;
+  if(which_dev == 2)
     yield();
-  }
 
   usertrapret();
 }
@@ -154,11 +151,8 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING){
-    struct proc* p = myproc();
-    p->accumulator += p->ps_priority;
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
     yield();
-  }
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

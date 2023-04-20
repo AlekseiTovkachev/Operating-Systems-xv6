@@ -10,10 +10,8 @@ uint64
 sys_exit(void)
 {
   int n;
-  char exit_msg[32];
-  argstr(1, exit_msg, 32);
   argint(0, &n);
-  exit(n, exit_msg);
+  exit(n);
   return 0;  // not reached
 }
 
@@ -33,10 +31,8 @@ uint64
 sys_wait(void)
 {
   uint64 p;
-  uint64 exit_msg;
   argaddr(0, &p);
-  argaddr(1, &exit_msg);
-  return wait(p, (char*)exit_msg);
+  return wait(p);
 }
 
 uint64
@@ -47,7 +43,7 @@ sys_sbrk(void)
 
   argint(0, &n);
   addr = myproc()->sz;
-  if (growproc(n) < 0)
+  if(growproc(n) < 0)
     return -1;
   return addr;
 }
@@ -61,8 +57,8 @@ sys_sleep(void)
   argint(0, &n);
   acquire(&tickslock);
   ticks0 = ticks;
-  while (ticks - ticks0 < n) {
-    if (killed(myproc())) {
+  while(ticks - ticks0 < n){
+    if(killed(myproc())){
       release(&tickslock);
       return -1;
     }
@@ -92,25 +88,4 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
-}
-
-uint64
-sys_memsize(void)
-{
-  struct proc* p = myproc();
-  return p->sz;
-}
-
-uint64
-sys_set_ps_priority(void)
-{
-  //TODO: add a lock if needed
-  int n;
-  struct proc* p = myproc();
-  argint(0, &n);
-  if ((n < 1) || (n > 10)) {
-    return -1;
-  }
-  p->ps_priority = n;
-  return 0;
 }
