@@ -1,0 +1,27 @@
+1)kernel/syscall.c in line 107:
+extern uint64 sys_newsyscall(void);
+
+2)kernel/syscall.h in line 23:
+#define SYS_newsyscall 22
+
+3)kernel/syscall.c add this after line 130 
+inside the curly brackets of the struct:
+[SYS_newsyscall] sys_newsyscall,
+
+4)kernel/sysproc.c from line 100 to 105:
+uint64
+sys_newsyscall(void)
+{
+// from here you can call other function in the kernel
+// from proc.c or trap.c and many others places
+return 0;
+}
+
+5)user/user.h in line 26:
+int newsyscall(void);
+
+6)user/usys.pl in line 39:
+entry("newsyscall");
+
+
+
