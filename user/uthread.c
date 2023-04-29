@@ -1,15 +1,10 @@
-#include "kernel/param.h"
 #include "kernel/types.h"
 #include "kernel/stat.h"
 #include "user/user.h"
-#include "kernel/fs.h"
-#include "kernel/fcntl.h"
-#include "kernel/syscall.h"
-#include "kernel/memlayout.h"
-#include "kernel/riscv.h"
 #include "uthread.h"
+#include <stddef.h>
 
-struct uthread uthread[MAX_UTHREADS];
+struct uthread uthread[MAX_UTHREADS] = { 0 };
 
 
 /// @brief The function should initialize the user thread in a free entry in the table,
@@ -20,116 +15,94 @@ struct uthread uthread[MAX_UTHREADS];
 /// @return 
 int uthread_create(void (*start_func)(), enum sched_priority priority) {
 
-  if (uthread[MAX_UTHREADS - 1] != null) {
-    //no more space for new threads
-    return -1;
+  for (int i = 0; i < MAX_UTHREADS; i++)
+  {
+    if (uthread[i].state == FREE) {
+
+      uthread[i].state = RUNNABLE;
+      uthread[i].context.ra = (uint64)start_func;
+      memset(uthread[i].ustack, 0, STACK_SIZE);
+      uthread[i].context.sp = (uint64) & (uthread[i].ustack[0]);
+      uthread[i].priority = priority;
+
+      return 0;
+    }
   }
 
-  struct uthread new_thread = malloc(sizeof(struct uthread));
-  new_thread.state = RUNNABLE;
-  new_thread.context.ra = start_func;
-  new_thread.context.sp = new_thread.ustack[STACK_SIZE - 1];
-  new_thread.priority = priority;
-
-  return 0;
+  return -1;
 }
 
 void uthread_yield() {
-  //TODO: update for scheduling policy
 
-  //Round-robin
-  struct uthread next = null;
-  struct uthread current = &(uthread_self());
+  struct uthread* current = uthread_self();
+  struct uthread* chosen = choose_runnable_thread();
 
-  int num_of_threads = 0;
-  int index_of_current = 0;
-  for (int j = 0; j < MAX_UTHREADS; j++)
-  {
-    if ((uthread[j] != null) && (uthread[j].state != FREE)) {
-      num_of_threads++;
-      if (uthread[j] == current)
-        index_of_current = j;
-    }
-  }
-
-  if (num_of_threads == 1)
+  if (chosen == NULL) {
     return;
-
-  int i = index_of_current + 1;
-  while (next == null) {
-
-    if (i == MAX_UTHREADS)
-      i = 0;
-
-    if ((uthread[i] != null) && (uthread[j].state != FREE)) {
-      next = uthread[i];
-      uswtch(&(current.context), &(next.context));
-      return;
-    }
-    i++;
-
   }
+
+  current->state = RUNNABLE;
+  chosen->state = RUNNING;
+  uswtch(&(current->context), &(chosen->context));
+
+
+
+  // for (int i = 0; i < MAX_UTHREADS; i++)
+  // {
+  //   if (uthread[i].state == RUNNABLE) {
+  //     current->state = RUNNABLE;
+  //     scheduler();
+  //   }
+  // }
+
+  // return;
 }
 
 
 void uthread_exit() {
-  //TODO: update for scheduling policy
 
-  //Round-robin
-  struct uthread next = null;
-  struct uthread current = &(uthread_self());
+  struct uthread* current = uthread_self();
+  struct uthread* chosen = choose_runnable_thread();
 
-  int num_of_threads = 0;
-  int index_of_current = 0;
-  for (int j = 0; j < MAX_UTHREADS; j++)
-  {
-    if ((uthread[j] != null) && (uthread[j].state != FREE)) {
-      num_of_threads++;
-      if (uthread[j] == current)
-        index_of_current = j;
-    }
+  if (chosen == NULL) {
+    exit(0);
   }
 
-  if (num_of_threads == 1)
-    exit();
-
-  int i = index_of_current + 1;
-  while (next == null) {
-
-    if (i == MAX_UTHREADS)
-      i = 0;
-
-    if ((uthread[i] != null) && (uthread[j].state != FREE)) {
-      next = uthread[i];
-      uswtch(&(current.context), &(next.context));
-      current.state = FREE;
-      return;
-    }
-    i++;
-  }
-
+  current->state = FREE;
+  chosen->state = RUNNING;
+  uswtch(&(current->context), &(chosen->context));
 }
 
 
 int uthread_start_all() {
-  static int first = 1;
-  if (first) {
-    
-    //choose thread
-    first = 0;
-    //call thread func
 
+  static int first = 1;
+
+  if (first) {
+
+    struct uthread* chosen_thread = choose_runnable_thread();
+    // choose thread
+    if (chosen_thread == NULL) {
+      return -1;
+    }
+    first = 0;
+
+    // context switch
+    uswtch((struct context*)NULL, &(chosen_thread->context));
+
+    // Not accessible
+    return -1;
+  }
+  else {
+    return -1;
   }
 
-  //if in main make switch
-  //if not in main return -1
 }
-
 
 enum sched_priority uthread_set_priority(enum sched_priority priority) {
 
   struct uthread* current = uthread_self();
-  sched_priority cur_p = current->priority;
+  int cur_p = current->priority;
   current->priority = priority;
 
   return cur_p;
@@ -140,12 +113,42 @@ enum sched_priority uthread_get_priority() {
 }
 
 struct uthread* uthread_self() {
-  for (int i = 0; i < MAX_UTHREADS; int i++)
+  for (int i = 0; i < MAX_UTHREADS; i++)
   {
-    if ((uthread[i] != null) && (uthread[i].state == RUNNING))
+    if (uthread[i].state == RUNNING)
       return &(uthread[i]);
   }
 
   //Not accessible
-  return null;
+  return NULL;
+}
+
+// void scheduler() {
+//   struct uthread* current = uthread_self();
+//   struct uthread* chosen = choose_runnable_thread();
+// }
+
+struct uthread* choose_runnable_thread() {
+
+  struct uthread* current = uthread_self();
+
+  for (int i = 0; i < MAX_UTHREADS; i++)
+  {
+    if (!(&uthread[i] == current) && (uthread[i].state == RUNNABLE) && (uthread[i].priority == HIGH)) {
+      return &uthread[i];
+    }
+  }
+  for (int i = 0; i < MAX_UTHREADS; i++)
+  {
+    if (!(&uthread[i] == current) && (uthread[i].state == RUNNABLE) && (uthread[i].priority == MEDIUM)) {
+      return &uthread[i];
+    }
+  }
+  for (int i = 0; i < MAX_UTHREADS; i++)
+  {
+    if (!(&uthread[i] == current) && (uthread[i].state == RUNNABLE) && (uthread[i].priority == LOW)) {
+      return &uthread[i];
+    }
+  }
+  return NULL;
 }
