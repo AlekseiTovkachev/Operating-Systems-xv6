@@ -47,5 +47,4 @@ enum sched_priority uthread_get_priority();
 
 struct uthread* uthread_self();
 
-// void scheduler();
 struct uthread* choose_runnable_thread();
