@@ -1,4 +1,7 @@
-#include "proc.h"
+#ifndef KTHREAD_H
+#define KTHREAD_H
+
+// #include "proc.h"
 #include "param.h"
 
 // per-process data for the trap handling code in trampoline.S.
@@ -80,7 +83,7 @@ struct cpu {
   int intena;                 // Were interrupts enabled before push_off()?
 };
 
-enum kthreadstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum kthreadstate { K_UNUSED, K_USED, K_SLEEPING, K_RUNNABLE, K_RUNNING, K_ZOMBIE };
 
 
 extern struct cpu cpus[NCPU];
@@ -97,11 +100,13 @@ struct kthread
   int tid;                     // Thread ID
 
   // wait_lock must be held when using this:
-  struct proc* parent;         // Parent process
+  struct proc* parent;          // Parent process
 
   uint64 kstack;                // Virtual address of kernel stack
   
   struct trapframe *trapframe;  // data page for trampoline.S
 
-  struct context context;      // swtch() here to run process
+  struct context context;       // swtch() here to run process
 };
+
+#endif

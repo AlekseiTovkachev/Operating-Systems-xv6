@@ -7,14 +7,12 @@
 #include "defs.h"
 
 extern struct proc proc[NPROC];
-
-// int nexttid = 1;
-// struct spinlock tid_lock;
+struct cpu cpus[NCPU];
 
 void kthreadinit(struct proc* p)
 {
 
-  initlock(&tid_lock, "nexttid");
+  initlock(&p->tid_lock, "nexttid");
   for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
     initlock(&kt->lock, "kthread");
@@ -22,7 +20,7 @@ void kthreadinit(struct proc* p)
     // WARNING: Don't change this line!
     // get the pointer to the kernel stack of the kthread
     kt->kstack = KSTACK((int)((p - proc) * NKT + (kt - p->kthread)));
-    kt->state = UNUSED;
+    kt->state = K_UNUSED;
     kt->parent = p;
   }
 }
@@ -37,6 +35,8 @@ cpuid()
   return id;
 }
 
+// Return this CPU's cpu struct.
+// Interrupts must be disabled.
 struct cpu*
   mycpu(void)
 {
@@ -45,47 +45,39 @@ struct cpu*
   return c;
 }
 
-struct kthread* mykthread()
+// Return the current struct kthehread *, or zero if none.
+struct kthread*
+  mykthread(void)
 {
   push_off();
   struct cpu* c = mycpu();
-  struct proc* p = c->proc;
-  struct kthread* kt;
-  for (int i = 0; i < NKT; i++)
-  {
-    if (p->ktherad[i].state == RUNNING) {
-      kt = &p->kthread[i];
-      break;
-    }
-  }
+  struct kthread* kt = c->kthread;
   pop_off();
   return kt;
-  //return &myproc()->kthread[0];
 }
 
+
 int
-alloctid()
+alloctid(struct proc* p)
 {
   int tid;
 
-  acquire(&tid_lock);
-  tid = nexttid;
-  nexttid = nexttid + 1;
-  release(&tid_lock);
+  acquire(&p->tid_lock);
+  tid = p->nexttid;
+  p->nexttid = p->nexttid + 1;
+  release(&p->tid_lock);
 
   return tid;
 }
 
-static struct kthread*
-allockthread(void)
+struct kthread*
+  allockthread(struct proc* p)
 {
   struct kthread* kt;
-  struct proc* p = mycpu()->proc;
-  for (int i = 0; i < NKT; i++)
+  for (kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
-    kt = &p->kthread[i];
     acquire(&kt->lock);
-    if (kt->state == UNUSED) {
+    if (kt->state == K_UNUSED) {
       goto found;
     }
     else {
@@ -94,21 +86,9 @@ allockthread(void)
   }
   return 0;
 
-
-  // for (kt = p->kthread[0]; kt < &p->kthread[NKT]; kt++) {
-  //   acquire(&kt->lock);
-  //   if (kt->state == UNUSED) {
-  //     goto found;
-  //   }
-  //   else {
-  //     release(&kt->lock);
-  //   }
-  // }
-  // return 0;
-
 found:
-  kt->tid = alloctid();
-  kt->state = USED;
+  kt->tid = alloctid(p);
+  kt->state = K_USED;
   kt->trapframe = get_kthread_trapframe(p, kt);
 
   // Set up new context to start executing at forkret,
@@ -121,7 +101,7 @@ found:
 }
 
 
-static void
+void
 freekthread(struct kthread* kt)
 {
   kt->trapframe = 0;
@@ -131,7 +111,7 @@ freekthread(struct kthread* kt)
   kt->chan = 0;
   kt->killed = 0;
   kt->xstate = 0;
-  kt->state = UNUSED;
+  kt->state = K_UNUSED;
 
 }
 
@@ -140,9 +120,9 @@ struct trapframe* get_kthread_trapframe(struct proc* p, struct kthread* kt)
   return p->base_trapframes + ((int)(kt - p->kthread));
 }
 
-// TODO: delete this after you are done with task 2.2
-void allocproc_help_function(struct proc* p) {
-  p->kthread->trapframe = get_kthread_trapframe(p, p->kthread);
+// // TODO: delete this after you are done with task 2.2
+// void allocproc_help_function(struct proc* p) {
+//   p->kthread->trapframe = get_kthread_trapframe(p, p->kthread);
 
-  p->context.sp = p->kthread->kstack + PGSIZE;
-}
+//   p->context.sp = p->kthread->kstack + PGSIZE;
+// }

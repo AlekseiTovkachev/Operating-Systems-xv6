@@ -85,6 +85,7 @@ void            printfinit(void);
 int             cpuid(void);
 void            exit(int);
 int             fork(void);
+void            forkret(void);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
@@ -92,8 +93,8 @@ void            proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);
-struct cpu*     mycpu(void);
-struct cpu*     getmycpu(void);
+// struct cpu*     mycpu(void);
+// struct cpu*     getmycpu(void);
 struct proc*    myproc();
 void            procinit(void);
 void            scheduler(void) __attribute__((noreturn));
@@ -108,13 +109,16 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 
 // kthread.c
-void                kthreadinit(struct proc *);
-struct kthread*     mykthread();
-int                 alloctid();
-struct trapframe*   get_kthread_trapframe(struct proc* p, struct kthread* kt)
+void                    kthreadinit(struct proc *);
+struct kthread*         mykthread();
+int                     alloctid(struct proc* p);
+struct cpu*             mycpu(void);
+struct kthread*         allockthread(struct proc* p);
+void                    freekthread(struct kthread* kt);
+struct trapframe*       get_kthread_trapframe(struct proc* p, struct kthread* kt);
 
 // TODO: delete this after you are done with task 2.2
-void allocproc_help_function(struct proc *p);
+// void allocproc_help_function(struct proc *p);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
