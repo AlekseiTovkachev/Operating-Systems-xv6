@@ -140,25 +140,28 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  struct kthread* kt = allockthread(p);
+  // struct kthread* kt = allockthread(p);
 
   // Allocate a trapframe page.
   if ((p->base_trapframes = (struct trapframe*)kalloc()) == 0) {
     freeproc(p);
-    release(&kt->lock);
+    // release(&kt->lock);
     release(&p->lock);
     return 0;
   }
+  
+
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0) {
     freeproc(p);
-    release(&kt->lock);
+    // release(&kt->lock);
     release(&p->lock);
     return 0;
   }
 
+  allockthread(p);
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -272,10 +275,12 @@ userinit(void)
   uvmfirst(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  struct kthread* kt = p->kthread;
   // prepare for the very first "return" from kernel to user.
   p->kthread[0].trapframe->epc = 0;      // user program counter
   p->kthread[0].trapframe->sp = PGSIZE;  // user stack pointer
-
+  kt->state = USED;
+  // printf("here\n");
   p->kthread[0].state = K_RUNNABLE;
   release(&p->kthread[0].lock);
 
@@ -498,7 +503,6 @@ scheduler(void)
 {
   struct proc* p;
   struct cpu* c = mycpu();
-
   c->kthread = 0;
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
@@ -506,7 +510,7 @@ scheduler(void)
 
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == USED){
+      if (p->state == USED) {
         for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++) {
           acquire(&kt->lock);
           if (kt->state == K_RUNNABLE) {
@@ -708,7 +712,7 @@ setkilled(struct proc* p)
     acquire(&kt->lock);
     kt->killed = 1;
     release(&kt->lock);
-  }  
+  }
   p->killed = 1;
   release(&p->lock);
 }
