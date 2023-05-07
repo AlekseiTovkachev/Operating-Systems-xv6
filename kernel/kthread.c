@@ -7,7 +7,8 @@
 #include "defs.h"
 
 extern struct proc proc[NPROC];
-struct cpu cpus[NCPU];
+// struct cpu cpus[NCPU];
+// extern void forkret(void);
 
 void kthreadinit(struct proc* p)
 {
@@ -25,25 +26,25 @@ void kthreadinit(struct proc* p)
   }
 }
 
-// Must be called with interrupts disabled,
-// to prevent race with process being moved
-// to a different CPU.
-int
-cpuid()
-{
-  int id = r_tp();
-  return id;
-}
+// // Must be called with interrupts disabled,
+// // to prevent race with process being moved
+// // to a different CPU.
+// int
+// cpuid()
+// {
+//   int id = r_tp();
+//   return id;
+// }
 
-// Return this CPU's cpu struct.
-// Interrupts must be disabled.
-struct cpu*
-  mycpu(void)
-{
-  int id = cpuid();
-  struct cpu* c = &cpus[id];
-  return c;
-}
+// // Return this CPU's cpu struct.
+// // Interrupts must be disabled.
+// struct cpu*
+//   mycpu(void)
+// {
+//   int id = cpuid();
+//   struct cpu* c = &cpus[id];
+//   return c;
+// }
 
 // Return the current struct kthehread *, or zero if none.
 struct kthread*

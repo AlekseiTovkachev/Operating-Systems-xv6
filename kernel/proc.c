@@ -7,7 +7,7 @@
 #include "defs.h"
 
 struct proc proc[NPROC];
-
+struct cpu cpus[NCPU];
 struct proc* initproc;
 
 int nextpid = 1;
@@ -239,11 +239,11 @@ userinit(void)
   p->kthread[0].trapframe->epc = 0;      // user program counter
   p->kthread[0].trapframe->sp = PGSIZE;  // user stack pointer
   p->kthread[0].state = K_RUNNABLE;
-  release(&p->kthread[0].lock);
-
+  
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  release(&p->kthread[0].lock);
   release(&p->lock);
 }
 
@@ -287,7 +287,7 @@ fork(void)
   if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
     freeproc(np);
     //Check this!
-    // release(&np->kthread[0].lock);
+    release(&np->kthread[0].lock);
     release(&np->lock);
     return -1;
   }
@@ -299,7 +299,6 @@ fork(void)
   // Cause fork to return 0 in the child.
   np->kthread[0].trapframe->a0 = 0;
 
-  release(&np->kthread[0].lock);
 
   // increment reference counts on open file descriptors.
   for (i = 0; i < NOFILE; i++)
@@ -310,6 +309,10 @@ fork(void)
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
+
+  np->kthread[0].state = K_RUNNABLE;
+  release(&np->kthread[0].lock);
+
   // CHECK THIS
   release(&np->lock);
 
@@ -317,9 +320,9 @@ fork(void)
   np->parent = p;
   release(&wait_lock);
 
-  acquire(&np->kthread[0].lock);
-  np->kthread[0].state = K_RUNNABLE;
-  release(&np->kthread[0].lock);
+  // acquire(&np->kthread[0].lock);
+  // np->kthread[0].state = K_RUNNABLE;
+  // release(&np->kthread[0].lock);
 
   return pid;
 }
@@ -374,7 +377,8 @@ exit(int status)
 
   acquire(&p->lock);
 
-
+  p->xstate = status;
+  p->state = ZOMBIE;
   for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
     acquire(&kt->lock);
@@ -387,11 +391,10 @@ exit(int status)
 
   // release the proc lock???
 
-  p->xstate = status;
-  p->state = ZOMBIE;
+  // p->xstate = status;
+  // p->state = ZOMBIE;
 
   release(&p->lock);
-
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.
@@ -761,4 +764,24 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Must be called with interrupts disabled,
+// to prevent race with process being moved
+// to a different CPU.
+int
+cpuid()
+{
+  int id = r_tp();
+  return id;
+}
+
+// Return this CPU's cpu struct.
+// Interrupts must be disabled.
+struct cpu*
+  mycpu(void)
+{
+  int id = cpuid();
+  struct cpu* c = &cpus[id];
+  return c;
 }
