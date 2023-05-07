@@ -15,7 +15,7 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc* p);
-int    kthread_killed(struct kthread* kt);
+
 
 extern char trampoline[]; // trampoline.S
 

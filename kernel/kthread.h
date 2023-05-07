@@ -1,8 +1,8 @@
-#ifndef KTHREAD_H
-#define KTHREAD_H
+// #ifndef KTHREAD_H
+// #define KTHREAD_H
 
-// #include "proc.h"
-#include "param.h"
+// // #include "proc.h"
+// #include "param.h"
 
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
@@ -109,4 +109,4 @@ struct kthread
   struct context context;       // swtch() here to run process
 };
 
-#endif
+// #endif

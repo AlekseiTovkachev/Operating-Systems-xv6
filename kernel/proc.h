@@ -1,5 +1,5 @@
-#ifndef PROC_H
-#define PROC_H
+// #ifndef PROC_H
+// #define PROC_H
 
 #include "kthread.h"
 
@@ -31,4 +31,4 @@ struct proc {
   char name[16];               // Process name (debugging)
 };
 
-#endif
+// #endif

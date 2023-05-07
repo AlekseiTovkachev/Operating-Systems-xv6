@@ -7,8 +7,9 @@
 #include "defs.h"
 
 extern struct proc proc[NPROC];
+extern void forkret(void);
 // struct cpu cpus[NCPU];
-// extern void forkret(void);
+
 
 void kthreadinit(struct proc* p)
 {
