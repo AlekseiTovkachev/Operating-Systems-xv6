@@ -23,7 +23,7 @@ extern char trampoline[]; // trampoline.S
 // parents are not lost. helps obey the
 // memory model when using p->parent.
 // must be acquired before any p->lock.
-struct spinlock wait_lock;
+extern struct spinlock wait_lock;
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -157,7 +157,8 @@ freeproc(struct proc* p)
   p->pid = 0;
   p->parent = 0;
   p->name[0] = 0;
-  p->killed = 0;
+  p->
+  ed = 0;
   p->xstate = 0;
   p->state = UNUSED;
 }
@@ -449,6 +450,7 @@ wait(uint64 addr)
     //   release(&wait_lock);
     //   return -1;
     // }
+    // Potential error!!!
     if (!havekids || kthread_killed(mykthread())) {
       release(&wait_lock);
       return -1;
@@ -680,7 +682,6 @@ setkilled(struct proc* p)
   release(&p->lock);
 }
 
-// MAKE KILLED FOR THREADS TOO??? 
 int
 killed(struct proc* p)
 {
@@ -690,18 +691,6 @@ killed(struct proc* p)
   k = p->killed;
   release(&p->lock);
   return k;
-}
-
-int
-kthread_killed(struct kthread* kt)
-{
-  int k;
-
-  acquire(&kt->lock);
-  k = kt->killed;
-  release(&kt->lock);
-  return k;
-
 }
 
 // Copy to either a user address, or kernel address,

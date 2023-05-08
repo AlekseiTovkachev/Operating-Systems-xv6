@@ -93,7 +93,6 @@ pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
 int             kill(int);
 int             killed(struct proc*);
-int             kthread_killed(struct kthread* kt);
 void            setkilled(struct proc*);
 struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
@@ -118,6 +117,15 @@ int                     alloctid(struct proc* p);
 struct kthread*         allockthread(struct proc* p);
 void                    freekthread(struct kthread* kt);
 struct trapframe*       get_kthread_trapframe(struct proc* p, struct kthread* kt);
+int                     kthread_create(void* (*start_func)(), void* stack, uint stack_size)
+int                     kthread_killed(struct kthread* kt);
+int                     kthread_id();
+int                     kthread_kill(int tid);
+void                    kthread_setkilled(struct kthread* kt);
+void                    kthread_exit(int status);
+int                     kthread_join(int ktid, int* status);
+
+
 
 // TODO: delete this after you are done with task 2.2
 // void allocproc_help_function(struct proc *p);
