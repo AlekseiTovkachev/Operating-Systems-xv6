@@ -109,7 +109,7 @@ freekthread(struct kthread* kt)
   kt->trapframe = 0;
 
   kt->tid = 0;
-  kt->parent = 0;
+  // kt->parent = 0;
   kt->chan = 0;
   kt->killed = 0;
   kt->xstate = 0;
