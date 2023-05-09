@@ -117,7 +117,7 @@ int                     alloctid(struct proc* p);
 struct kthread*         allockthread(struct proc* p);
 void                    freekthread(struct kthread* kt);
 struct trapframe*       get_kthread_trapframe(struct proc* p, struct kthread* kt);
-int                     kthread_create(void* (*start_func)(), void* stack, uint stack_size)
+int                     kthread_create(void* (*start_func)(), void* stack, uint stack_size);
 int                     kthread_killed(struct kthread* kt);
 int                     kthread_id();
 int                     kthread_kill(int tid);

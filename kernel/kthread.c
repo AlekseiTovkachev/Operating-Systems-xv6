@@ -107,15 +107,14 @@ found:
 void
 freekthread(struct kthread* kt)
 {
-  kt->trapframe = 0;
-
-  kt->tid = 0;
-  // kt->parent = 0;
-  kt->chan = 0;
-  kt->killed = 0;
-  kt->xstate = 0;
-  kt->state = K_UNUSED;
-
+  if (kt != 0) {
+    kt->trapframe = 0;
+    kt->tid = 0;
+    kt->chan = 0;
+    kt->killed = 0;
+    kt->xstate = 0;
+    kt->state = K_UNUSED;
+  }
 }
 
 struct trapframe* get_kthread_trapframe(struct proc* p, struct kthread* kt)
@@ -126,29 +125,29 @@ struct trapframe* get_kthread_trapframe(struct proc* p, struct kthread* kt)
 int
 kthread_create(void* (*start_func)(), void* stack, uint stack_size)
 {
-  int pid;
+  int tid;
   struct kthread* nkt;
   struct proc* p = myproc();
-  struct kthread* kt = mykthread();
+
+  acquire(&p->lock);
 
   // Allocate kthread.
   if ((nkt = allockthread(p)) == 0) {
+    release(&p->lock);
     return -1;
   }
 
   nkt->kstack = (uint64)stack;
-
-  // if((nkt->kstack = (uint64)malloc(KLT_STACKSIZE)) < 0){
-  //   release(nkt->lock);
-  //   freekthread(nkt);
-  //   return -1;
-  // }
-
-  nkt->trapframe->epc = start_func;
+  nkt->trapframe->epc = (uint64)start_func;
+  // Check if works
   nkt->trapframe->sp = (uint64)(stack + stack_size - 1);
   nkt->state = K_RUNNABLE;
 
-  // release(nkt->lock);
+  tid = nkt->tid;
+
+  release(&nkt->lock);
+  release(&p->lock);
+  return tid;
 }
 
 int
@@ -205,72 +204,87 @@ kthread_exit(int status)
   struct kthread* kt = mykthread();
   struct proc* p = myproc();
 
-  acquire(&kt->lock);
-  kt->xstate = status;
-  kt->state = K_ZOMBIE;
-  // Check this!
-  release(&kt->lock);
-  int found = 0
-    for (struct kthread* okt = p->kthread; okt < &p->kthread[NKT] & !found; okt++)
-    {
-      acquire(&okt->lock);
-      if (okt->state > K_UNUSED && okt->state < K_ZOMBIE)
-        found = 1;
-      release(&okt->lock);
-    }
+
+  int found = 0;
+  for (struct kthread* okt = p->kthread;
+    (okt < &p->kthread[NKT]) & !found; okt++)
+  {
+    acquire(&okt->lock);
+    if (okt->state != K_UNUSED && okt->state != K_ZOMBIE)
+      found = 1;
+    release(&okt->lock);
+  }
 
   if (!found)
     exit(status);
 
+  acquire(&wait_lock);
+  wakeup(kt);
+  release(&wait_lock);
+
+  acquire(&kt->lock);
+  kt->xstate = status;
+  kt->state = K_ZOMBIE;
+
+  sched();
+  panic("zombie exit");
 }
 
 int
 kthread_join(int ktid, int* status)
 {
-  struct kthread* kt = mykthread();
-  struct kthread* kkt;
-  struct proc* p = myproc();
-  int found = 0;
-  
-  for (kkt = p->kthread; kkt < &p->kthread[NKT]; kkt++)
-  {
-    acquire(&kkt->lock);
-    if (kkt->tid == ktid) {
-      found = 1;
-      break;
-    }
-    release(&kkt->lock);
-  }
-  release(&kkt->lock);
 
-  if (found == 0) {    
-    return -1;
-  }
-  
   acquire(&wait_lock);
 
   for (;;) {
-    acquire(&kkt->lock);
-    if (kkt->state == K_ZOMBIE) {
+
+    struct kthread* kt;
+    struct proc* p = myproc();
+    int found = 0;
+
+    for (kt = p->kthread; kt < &p->kthread[NKT]; kt++)
+    {
+      acquire(&kt->lock);
+      if ((kt->tid == ktid)) {
+        // Check if this should stay like this
+        if (!kt->killed)
+          found = 1;
+        release(&kt->lock);
+        break;
+      }
+      release(&kt->lock);
+    }
+
+    if (found == 0) {
+      release(&wait_lock);
+      return -1;
+    }    
+
+    acquire(&kt->lock);
+    if (kt->state == K_ZOMBIE) {
       if ((uint64)status != 0 && copyout(p->pagetable,
-        (uint64)status, (char*)&kkt->xstate, sizeof(kkt->xstate)) < 0)
+        (uint64)status, (char*)&kt->xstate, sizeof(kt->xstate)) < 0)
       {
-        release(&kkt->lock);
+        release(&kt->lock);
         release(&wait_lock);
         return -1;
       }
-      freekthread(kkt);
+      freekthread(kt);
 
-      release(&kkt->lock);
+      release(&kt->lock);
       release(&wait_lock);
 
       return 0;
     }
-    release(&kkt->lock);
+    release(&kt->lock);
+
+    if (kthread_killed(mykthread())) {
+      release(&wait_lock);
+      return -1;
+    }
 
 
-    
-    sleep(kkt, &wait_lock);
+    sleep(kt, &wait_lock);
   }
 
 }

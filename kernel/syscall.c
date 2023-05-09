@@ -9,12 +9,12 @@
 
 // Fetch the uint64 at addr from the current process.
 int
-fetchaddr(uint64 addr, uint64 *ip)
+fetchaddr(uint64 addr, uint64* ip)
 {
-  struct proc *p = myproc();
-  if(addr >= p->sz || addr+sizeof(uint64) > p->sz) // both tests needed, in case of overflow
+  struct proc* p = myproc();
+  if (addr >= p->sz || addr + sizeof(uint64) > p->sz) // both tests needed, in case of overflow
     return -1;
-  if(copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
+  if (copyin(p->pagetable, (char*)ip, addr, sizeof(*ip)) != 0)
     return -1;
   return 0;
 }
@@ -22,10 +22,10 @@ fetchaddr(uint64 addr, uint64 *ip)
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul, or -1 for error.
 int
-fetchstr(uint64 addr, char *buf, int max)
+fetchstr(uint64 addr, char* buf, int max)
 {
-  struct proc *p = myproc();
-  if(copyinstr(p->pagetable, buf, addr, max) < 0)
+  struct proc* p = myproc();
+  if (copyinstr(p->pagetable, buf, addr, max) < 0)
     return -1;
   return strlen(buf);
 }
@@ -54,7 +54,7 @@ argraw(int n)
 
 // Fetch the nth 32-bit system call argument.
 void
-argint(int n, int *ip)
+argint(int n, int* ip)
 {
   *ip = argraw(n);
 }
@@ -63,7 +63,7 @@ argint(int n, int *ip)
 // Doesn't check for legality, since
 // copyin/copyout will do that.
 void
-argaddr(int n, uint64 *ip)
+argaddr(int n, uint64* ip)
 {
   *ip = argraw(n);
 }
@@ -72,7 +72,7 @@ argaddr(int n, uint64 *ip)
 // Copies into buf, at most max.
 // Returns string length if OK (including nul), -1 if error.
 int
-argstr(int n, char *buf, int max)
+argstr(int n, char* buf, int max)
 {
   uint64 addr;
   argaddr(n, &addr);
@@ -101,11 +101,16 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
+extern uint64 sys_kthread_create(void);
+extern uint64 sys_kthread_id(void);
+extern uint64 sys_kthread_kill(void);
+extern uint64 sys_kthread_exit(void);
+extern uint64 sys_kthread_join(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
-static uint64 (*syscalls[])(void) = {
-[SYS_fork]    sys_fork,
+static uint64(*syscalls[])(void) = {
+[SYS_fork] sys_fork,
 [SYS_exit]    sys_exit,
 [SYS_wait]    sys_wait,
 [SYS_pipe]    sys_pipe,
@@ -126,23 +131,30 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_kthread_create]   sys_kthread_create,
+[SYS_kthread_id]   sys_kthread_id,
+[SYS_kthread_kill]   sys_kthread_kill,
+[SYS_kthread_exit]   sys_kthread_exit,
+[SYS_kthread_join]   sys_kthread_join,
+
 };
 
 void
 syscall(void)
 {
   int num;
-  struct proc *p = myproc();
-  struct kthread *kt = mykthread();
+  struct proc* p = myproc();
+  struct kthread* kt = mykthread();
 
   num = kt->trapframe->a7;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+  if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
     // and store its return value in p->trapframe->a0
     kt->trapframe->a0 = syscalls[num]();
-  } else {
+  }
+  else {
     printf("%d %s: unknown sys call %d\n",
-            p->pid, p->name, num);
+      p->pid, p->name, num);
     kt->trapframe->a0 = -1;
   }
 }

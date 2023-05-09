@@ -23,7 +23,7 @@ extern char trampoline[]; // trampoline.S
 // parents are not lost. helps obey the
 // memory model when using p->parent.
 // must be acquired before any p->lock.
-extern struct spinlock wait_lock;
+struct spinlock wait_lock;
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -157,8 +157,7 @@ freeproc(struct proc* p)
   p->pid = 0;
   p->parent = 0;
   p->name[0] = 0;
-  p->
-  ed = 0;
+  p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
 }
@@ -221,7 +220,6 @@ uchar initcode[] = {
 };
 
 // Set up first user process.
-//CHECK!
 void
 userinit(void)
 {
@@ -240,7 +238,7 @@ userinit(void)
   p->kthread[0].trapframe->epc = 0;      // user program counter
   p->kthread[0].trapframe->sp = PGSIZE;  // user stack pointer
   p->kthread[0].state = K_RUNNABLE;
-  
+
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
@@ -314,16 +312,11 @@ fork(void)
   np->kthread[0].state = K_RUNNABLE;
   release(&np->kthread[0].lock);
 
-  // CHECK THIS
   release(&np->lock);
 
   acquire(&wait_lock);
   np->parent = p;
   release(&wait_lock);
-
-  // acquire(&np->kthread[0].lock);
-  // np->kthread[0].state = K_RUNNABLE;
-  // release(&np->kthread[0].lock);
 
   return pid;
 }
@@ -350,6 +343,27 @@ void
 exit(int status)
 {
   struct proc* p = myproc();
+  // acquire(&p->lock);
+  for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
+  {
+    acquire(&kt->lock);
+
+    if (kt != mykthread()) {
+      release(&kt->lock);
+
+      kthread_kill(kt->tid);
+      kthread_join(kt->tid, 0);
+
+      acquire(&kt->lock);
+    }
+    else {
+      kt->xstate = status;
+    }
+    kt->state = K_ZOMBIE;
+
+    release(&kt->lock);
+  }
+  // release(&p->lock);
 
   if (p == initproc)
     panic("init exiting");
@@ -380,28 +394,15 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-  for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
-  {
-    acquire(&kt->lock);
 
-    kt->xstate = status;
-    kt->state = K_ZOMBIE;
-    // Check this!
-    release(&kt->lock);
-  }
 
-  // release the proc lock???
-
-  // p->xstate = status;
-  // p->state = ZOMBIE;
 
   release(&p->lock);
   release(&wait_lock);
 
-  // Jump into the scheduler, never to return.
-
   acquire(&mykthread()->lock);
 
+  // Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
 }
@@ -446,20 +447,13 @@ wait(uint64 addr)
     }
 
     // No point waiting if we don't have any children.
-    // if (!havekids || killed(p)) {
-    //   release(&wait_lock);
-    //   return -1;
-    // }
-    // Potential error!!!
     if (!havekids || kthread_killed(mykthread())) {
       release(&wait_lock);
       return -1;
     }
 
     // Wait for a child to exit.
-    // CHECK THIS!!!
     sleep(p, &wait_lock);  //DOC: wait-sleep
-    // sleep(mykthread(), &wait_lock);  //DOC: wait-sleep
   }
 }
 
@@ -576,7 +570,6 @@ sleep(void* chan, struct spinlock* lk)
 {
 
   struct kthread* kt = mykthread();
-  // struct proc* p = myproc();
 
   // Must acquire kt->lock in order to
   // change kt->state and then call sched.
@@ -585,7 +578,6 @@ sleep(void* chan, struct spinlock* lk)
   // (wakeup locks kt->lock),
   // so it's okay to release lk.
 
-  // acquire(&p->lock);  //DOC: sleeplock1
   acquire(&kt->lock);  //DOC: sleeplock1
   release(lk);
 
@@ -600,42 +592,31 @@ sleep(void* chan, struct spinlock* lk)
 
   // Reacquire original lock.
   release(&kt->lock);
-  // release(&p->lock);
   acquire(lk);
 
 }
 
 // Wake up all processes sleeping on chan.
 // Must be called without any p->lock.
-// CHECK THIS!!!
 void
 wakeup(void* chan)
 {
   struct proc* p;
 
   for (p = proc; p < &proc[NPROC]; p++) {
-    // if (p != myproc()) {
-    // if (holding(&p->lock)) printf("panicc: wakeup proc acquire");
-
-    // acquire(&p->lock);
 
     for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
     {
-      // if (kt != mykthread()) {
-        // if (holding(&kt->lock)) printf("panicc: wakeup kthread acquire\n");
-
+      if (kt != mykthread()) {
         acquire(&kt->lock);
 
         if (kt->state == K_SLEEPING && kt->chan == chan) {
           kt->state = K_RUNNABLE;
         }
+
         release(&kt->lock);
-      // }
-
+      }
     }
-
-    // release(&p->lock);
-    // }
   }
 }
 
@@ -667,17 +648,11 @@ kill(int pid)
   }
   return -1;
 }
-// CHECK IF THREADS SHOULD BE KILLED!!!
+
 void
 setkilled(struct proc* p)
 {
   acquire(&p->lock);
-  // for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
-  // {
-  //   acquire(&kt->lock);
-  //   kt->killed = 1;
-  //   release(&kt->lock);
-  // }
   p->killed = 1;
   release(&p->lock);
 }

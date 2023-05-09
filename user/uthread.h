@@ -29,9 +29,9 @@ struct context {
 
 struct uthread {
   char                ustack[STACK_SIZE];  // the thread's stack
-  enum tstate         state;          // FREE, RUNNING, RUNNABLE
-  struct context      context;        // uswtch() here to run process
-  enum sched_priority priority;       // scheduling priority
+  enum tstate         state;               // FREE, RUNNING, RUNNABLE
+  struct context      context;             // uswtch() here to run process
+  enum sched_priority priority;            // scheduling priority
 };
 
 extern void uswtch(struct context*, struct context*);
@@ -47,5 +47,4 @@ enum sched_priority uthread_get_priority();
 
 struct uthread* uthread_self();
 
-// void scheduler();
 struct uthread* choose_runnable_thread();
