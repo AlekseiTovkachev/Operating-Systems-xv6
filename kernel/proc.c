@@ -233,7 +233,6 @@ userinit(void)
   uvmfirst(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
-  // struct kthread* kt = p->kthread;
   // prepare for the very first "return" from kernel to user.
   p->kthread[0].trapframe->epc = 0;      // user program counter
   p->kthread[0].trapframe->sp = PGSIZE;  // user stack pointer
@@ -285,7 +284,6 @@ fork(void)
   // Copy user memory from parent to child.
   if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
     freeproc(np);
-    //Check this!
     release(&np->kthread[0].lock);
     release(&np->lock);
     return -1;
@@ -343,27 +341,18 @@ void
 exit(int status)
 {
   struct proc* p = myproc();
-  // acquire(&p->lock);
   for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
-    acquire(&kt->lock);
 
     if (kt != mykthread()) {
-      release(&kt->lock);
-
       kthread_kill(kt->tid);
       kthread_join(kt->tid, 0);
+    }
 
-      acquire(&kt->lock);
-    }
-    else {
-      kt->xstate = status;
-    }
+    acquire(&kt->lock);
     kt->state = K_ZOMBIE;
-
     release(&kt->lock);
   }
-  // release(&p->lock);
 
   if (p == initproc)
     panic("init exiting");
@@ -391,13 +380,10 @@ exit(int status)
   wakeup(p->parent);
 
   acquire(&p->lock);
-
   p->xstate = status;
   p->state = ZOMBIE;
-
-
-
   release(&p->lock);
+
   release(&wait_lock);
 
   acquire(&mykthread()->lock);
@@ -406,6 +392,8 @@ exit(int status)
   sched();
   panic("zombie exit");
 }
+
+
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
@@ -445,9 +433,8 @@ wait(uint64 addr)
         release(&pp->lock);
       }
     }
-
     // No point waiting if we don't have any children.
-    if (!havekids || kthread_killed(mykthread())) {
+    if (!havekids || kthread_killed(mykthread()) || killed(p)) {
       release(&wait_lock);
       return -1;
     }
@@ -469,14 +456,12 @@ scheduler(void)
 {
   struct proc* p;
   struct cpu* c = mycpu();
-
   c->kthread = 0;
   for (;;) {
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
     for (p = proc; p < &proc[NPROC]; p++) {
-      // acquire(&p->lock);
       if (p->state == USED) {
         for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++) {
           acquire(&kt->lock);
@@ -495,7 +480,6 @@ scheduler(void)
           release(&kt->lock);
         }
       }
-      // release(&p->lock);
     }
   }
 }
@@ -512,6 +496,9 @@ sched(void)
 {
   int intena;
   struct kthread* kt = mykthread();
+
+  // struct proc* p = myproc();
+  // printf("%d\n", p->pid);
 
   if (!holding(&kt->lock))
     panic("sched kt->lock");
@@ -548,9 +535,6 @@ forkret(void)
 
   // Still holding kt->lock from scheduler.
   release(&mykthread()->lock);
-  // Check this!
-  // release(&myproc()->lock);
-
 
   if (first) {
     // File system initialization must be run in the context of a
@@ -604,19 +588,24 @@ wakeup(void* chan)
   struct proc* p;
 
   for (p = proc; p < &proc[NPROC]; p++) {
+    // if (p != myproc()) {
+      acquire(&p->lock);
+      if(p->state == USED){
+        for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
+        {
+          if (kt != mykthread()) {
+            acquire(&kt->lock);
 
-    for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
-    {
-      if (kt != mykthread()) {
-        acquire(&kt->lock);
+            if (kt->state == K_SLEEPING && kt->chan == chan) {
+              kt->state = K_RUNNABLE;
+            }
 
-        if (kt->state == K_SLEEPING && kt->chan == chan) {
-          kt->state = K_RUNNABLE;
+            release(&kt->lock);
+          }
         }
-
-        release(&kt->lock);
-      }
-    }
+      } 
+      release(&p->lock);
+    // }
   }
 }
 

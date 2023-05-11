@@ -78,11 +78,11 @@ usertrap(void)
     // kthread_setkilled(kt);
   }
 
-  if (kthread_killed(kt))
-    kthread_exit(-1);
-
   if (killed(p))
     exit(-1);
+
+  if (kthread_killed(kt))
+    kthread_exit(-1);
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
@@ -162,8 +162,10 @@ kerneltrap()
   // give up the CPU if this is a timer interrupt.
   // if(which_dev == 2 && myproc() != 0 && mykthread()->state == K_RUNNING)
   //   yield();
-  if (which_dev == 2 && myproc() != 0 && myproc()->kthread[0].state == K_RUNNING)
+  if (which_dev == 2 && mykthread() != 0 && mykthread()->state == K_RUNNING)
     yield();
+  // if (which_dev == 2 && myproc() != 0 && myproc()->kthread[0].state == K_RUNNING)
+  //   yield();
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

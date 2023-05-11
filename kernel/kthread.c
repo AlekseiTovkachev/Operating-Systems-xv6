@@ -128,19 +128,15 @@ kthread_create(void* (*start_func)(), void* stack, uint stack_size)
   int tid;
   struct kthread* nkt;
   struct proc* p = myproc();
-
   acquire(&p->lock);
-
   // Allocate kthread.
   if ((nkt = allockthread(p)) == 0) {
-    release(&p->lock);
     return -1;
   }
 
-  nkt->kstack = (uint64)stack;
+  // nkt->kstack = (uint64)stack;
   nkt->trapframe->epc = (uint64)start_func;
-  // Check if works
-  nkt->trapframe->sp = (uint64)(stack + stack_size - 1);
+  nkt->trapframe->sp = (uint64)(stack + stack_size);
   nkt->state = K_RUNNABLE;
 
   tid = nkt->tid;
@@ -161,6 +157,7 @@ kthread_kill(int tid)
 {
 
   struct proc* p = myproc();
+  acquire(&p->lock);
   for (struct kthread* kt = p->kthread; kt < &p->kthread[NKT]; kt++)
   {
     acquire(&kt->lock);
@@ -170,11 +167,12 @@ kthread_kill(int tid)
         kt->state = K_RUNNABLE;
       }
       release(&kt->lock);
+      release(&p->lock);
       return 0;
     }
     release(&kt->lock);
   }
-
+  release(&p->lock);
   return -1;
 }
 
@@ -204,14 +202,17 @@ kthread_exit(int status)
   struct kthread* kt = mykthread();
   struct proc* p = myproc();
 
-
   int found = 0;
   for (struct kthread* okt = p->kthread;
     (okt < &p->kthread[NKT]) & !found; okt++)
   {
     acquire(&okt->lock);
-    if (okt->state != K_UNUSED && okt->state != K_ZOMBIE)
+    if (okt->state != K_UNUSED && okt->state != K_ZOMBIE
+      && okt != mykthread()) {
       found = 1;
+      release(&okt->lock);
+      break;
+    }
     release(&okt->lock);
   }
 
@@ -230,6 +231,7 @@ kthread_exit(int status)
   panic("zombie exit");
 }
 
+
 int
 kthread_join(int ktid, int* status)
 {
@@ -246,7 +248,6 @@ kthread_join(int ktid, int* status)
     {
       acquire(&kt->lock);
       if ((kt->tid == ktid)) {
-        // Check if this should stay like this
         if (!kt->killed)
           found = 1;
         release(&kt->lock);
@@ -255,10 +256,10 @@ kthread_join(int ktid, int* status)
       release(&kt->lock);
     }
 
-    if (found == 0) {
+    if (found == 0 || kthread_killed(mykthread())) {
       release(&wait_lock);
       return -1;
-    }    
+    }
 
     acquire(&kt->lock);
     if (kt->state == K_ZOMBIE) {
@@ -277,24 +278,7 @@ kthread_join(int ktid, int* status)
       return 0;
     }
     release(&kt->lock);
-
-    if (kthread_killed(mykthread())) {
-      release(&wait_lock);
-      return -1;
-    }
-
-
     sleep(kt, &wait_lock);
   }
-
 }
-
-
-
-
-
-
-
-
-
 

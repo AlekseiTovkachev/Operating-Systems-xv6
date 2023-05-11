@@ -58,22 +58,16 @@ sys_sleep(void)
   acquire(&tickslock);
   ticks0 = ticks;
   while (ticks - ticks0 < n) {
-
-    // if (kthread_killed(mykthread())) {
-    //   release(&tickslock);
-    //   kthread_exit(-1);
-    // }
-
-    // if (killed(myproc())) {
-    //   release(&tickslock);
-    //   return -1;
-    // }
-    
-    if (killed(myproc()) || kthread_killed(mykthread())) {
+   
+    if (killed(myproc())/* || kthread_killed(mykthread())*/) {
       release(&tickslock);
       return -1;
     }
+    if(kthread_killed(mykthread())){
+      kthread_exit(-1);
+    }
     sleep(&ticks, &tickslock);
+    
   }
   release(&tickslock);
   return 0;
