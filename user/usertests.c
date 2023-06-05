@@ -3077,6 +3077,7 @@ drivetests(int quick, int continuous, char *justone) {
 int
 main(int argc, char *argv[])
 {
+  printf("Entering usertests\n");
   int continuous = 0;
   int quick = 0;
   char *justone = 0;

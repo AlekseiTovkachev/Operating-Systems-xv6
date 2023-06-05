@@ -79,7 +79,15 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+struct page {
+  int in_use;
+  uint64 va;
+  // uint placeOnFile; // -1 if in physical memory
+};
+
+
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+
 
 // Per-process state
 struct proc {
@@ -104,6 +112,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-
+  
+  // check if lock needed
   struct file *swapFile;
+  struct page pages[MAX_TOTAL_PAGES];
+  int num_physical_pages;
+  int num_total_pages;
 };
