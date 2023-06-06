@@ -117,6 +117,7 @@ int             swap_out(struct proc* p);
 struct page*    get_page(struct proc* p, uint va);
 int             swap_in(struct proc* p, uint64 va);
 int             copy_pages(struct proc* from, struct proc* to);
+void            update_counters();
 
 // swtch.S
 void            swtch(struct context*, struct context*);

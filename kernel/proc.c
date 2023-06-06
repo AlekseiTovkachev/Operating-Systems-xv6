@@ -18,6 +18,16 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc* p);
 
+// static void printPTEFlags(pte_t pte);
+// static int is_address_valid(struct proc* p, char* addr, int write);
+static int move_page(struct proc* p, uint64 va, uint place_on_file, int direction);
+static int count_ones(int num);
+struct page* choose_page_NFUA(struct proc* p);
+struct page* choose_page_LAPA(struct proc* p);
+struct page* choose_page_SCFIFO(struct proc* p);
+struct page* choose_page(struct proc* p);
+int get_time();
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -141,12 +151,28 @@ found:
     return 0;
   }
 
+  for (int index = 0; index < MAX_TOTAL_PAGES; index++)
+  {
+    p->pages[index].placeOnFile = index * PGSIZE;
+    p->pages[index].in_use = 0;
+    p->pages[index].va = 0;
+    p->pages[index].creation_time = get_time();
+#if NFUA
+    p->pages[index].access_counter = 0;
+#endif
+#if LAPA
+    p->pages[index].access_counter = 0xFFFFFFFF;
+#endif
+  }
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+#ifndef NONE
   if (p->pid > 2) {
     release(&p->lock);
     if (createSwapFile(p) != 0) {
@@ -155,6 +181,7 @@ found:
     }
     acquire(&p->lock);
   }
+#endif
 
   return p;
 }
@@ -183,12 +210,12 @@ freeproc(struct proc* p)
   p->state = UNUSED;
   p->num_physical_pages = 0;
   p->num_total_pages = 0;
-
+#ifndef NONE
   for (struct page* page = p->pages; page < &p->pages[32]; page++)
   {
     page->in_use = 0;
   }
-
+#endif
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -315,8 +342,11 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+#ifndef NONE
+  release(&np->lock);
   copy_pages(p, np);
-
+  acquire(&np->lock);
+#endif
   np->sz = p->sz;
 
   // copy saved user registers.
@@ -385,9 +415,11 @@ exit(int status)
     }
   }
 
+#ifndef NONE
   if (p->pid > 2) {
     removeSwapFile(p);
   }
+#endif
 
   begin_op();
   iput(p->cwd);
@@ -491,6 +523,11 @@ scheduler(void)
         c->proc = p;
         swtch(&c->context, &p->context);
 
+#if NFUA || LAPA
+        release(&p->lock);
+        update_counters();
+        acquire(&p->lock);
+#endif 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -731,38 +768,32 @@ struct page*
 }
 
 /*
-Remove a page from physical memory
+Chooses and removes a page from physical memory
 Returns 0 for success and -1 for failure
 */
 int
 swap_out(struct proc* p)
 {
-  int index;
   struct page* page;
-  for (page = p->pages, index = 0; page < &p->pages[MAX_TOTAL_PAGES]; page++, index++)
-  {
-    pte_t* pte = walk(p->pagetable, page->va, 0);
-    if (!(*pte & PTE_PG)) {
-      // uint64 pa = walkaddr(p->pagetable, page->va);
-      // if (writeToSwapFile(p, (char*)pa, index * PGSIZE, PGSIZE) < 0) {
-      //   return -1;
-      // }
-      if (writeToSwapFile(p, (char*)page->va, index * PGSIZE, PGSIZE) < 0) {
-        return -1;
-      }
-      *pte |= PTE_PG;
-      *pte &= ~PTE_V;
-      p->num_physical_pages--;
-      return 0;
-    }
+  if ((page = choose_page(p)) == 0)
+    return -1;
+  pte_t* pte = walk(p->pagetable, page->va, 0);
+  if (!(*pte & PTE_PG) && page->in_use) {
+
+    move_page(p, page->va, page->placeOnFile, 0);
+
+    *pte |= PTE_PG;
+    *pte &= ~PTE_V;
+    p->num_physical_pages--;
+
+    kfree((void*)PTE2PA(*pte));
+
+    return 0;
   }
   return -1;
 }
 
-/*
-Returns a page that holds given virtual address
-On failure returns 0
-*/
+
 struct page*
   get_page(struct proc* p, uint va)
 {
@@ -776,8 +807,6 @@ struct page*
 }
 
 /// @brief Swap in the absent page
-/// @param p 
-/// @param va 
 /// @return 0 for success and -1 for error
 int
 swap_in(struct proc* p, uint64 va)
@@ -789,32 +818,38 @@ swap_in(struct proc* p, uint64 va)
     }
   }
 
+  char* pa = kalloc();
+
   uint64 page_start = PGROUNDDOWN(va);
 
-  int index;
   struct page* page;
-  for (page = p->pages, index = 0; page < &p->pages[MAX_TOTAL_PAGES]; page++)
+  for (page = p->pages; page < &p->pages[MAX_TOTAL_PAGES]; page++)
   {
     if ((page->in_use) && (page->va == page_start)) {
       pte_t* pte = walk(p->pagetable, page->va, 0);
       if (*pte & PTE_PG) {
-        uint64 pa = walkaddr(p->pagetable, page->va);
-        // if (readFromSwapFile(p, (char*)pa, index * PGSIZE, PGSIZE) < 0) {
-        //   return -1;
-        // }
 
-        if (readFromSwapFile(p, (char*)page->va, index * PGSIZE, PGSIZE) < 0) {
-          return -1;
-        }
+        *pte &= ~PTE_V;
+        move_page(p, page->va, page->placeOnFile, 1);
+
+        mappages(p->pagetable, page->va, /*p->sz*/PGSIZE,
+          (uint64)pa, PTE_W | PTE_X | PTE_R | PTE_U);
+
         uint flags = PTE_FLAGS(*pte);
         *pte = PA2PTE(pa) | PTE_V | flags;
-        // *pte &= ~PTE_PG;
-        // *pte |= PTE_V;
         p->num_physical_pages++;
+
+#if NFUA
+        page->accesscounter = 0;
+#endif
+
+#if LAPA
+        page->access_counter = 0xFFFFFFFF;
+#endif
+
         return 0;
       }
     }
-    index++;
   }
   return -1;
 }
@@ -826,25 +861,248 @@ swap_in(struct proc* p, uint64 va)
 int
 copy_pages(struct proc* from, struct proc* to)
 {
-
   if ((from->pid > 2) && (to->pid > 2)) {
-    char buffer[MAX_TOTAL_PAGES * PGSIZE];
-    if (readFromSwapFile(from, buffer, 0, MAX_TOTAL_PAGES * PGSIZE) < 0) {
-      return -1;
-    }
-    if (writeToSwapFile(to, buffer, 0, MAX_TOTAL_PAGES * PGSIZE) < 0) {
-      return -1;
+    int part_size = PGSIZE / 32;
+    int cur_offset = 0;
+    while (cur_offset < PGSIZE * MAX_TOTAL_PAGES) {
+      char buf[part_size];
+      if (readFromSwapFile(from, buf, cur_offset, part_size) < 0) {
+        return -1;
+      }
+      if (writeToSwapFile(to, buf, cur_offset, part_size) < 0) {
+        return -1;
+      }
+      cur_offset += part_size;
     }
   }
 
   for (int i = 0; i < MAX_TOTAL_PAGES; i++)
   {
-    from->pages[i].in_use = to->pages[i].in_use;
-    from->pages[i].va = to->pages[i].va;
+    to->pages[i].in_use = from->pages[i].in_use;
+    to->pages[i].va = from->pages[i].va;
+    to->pages[i].creation_time = from->pages[i].creation_time;
+    to->pages[i].access_counter = from->pages[i].access_counter;
   }
 
   to->num_physical_pages = from->num_physical_pages;
   to->num_total_pages = from->num_total_pages;
 
   return 0;
+}
+
+// static void
+// printPTEFlags(pte_t pte)
+// {
+//   // printf("PTE Flags:\n");
+//   // printf("Valid: %s\n", (pte & PTE_V) ? "Yes" : "No");
+//   // printf("Read: %s\n", (pte & PTE_R) ? "Yes" : "No");
+//   // printf("Write: %s\n", (pte & PTE_W) ? "Yes" : "No");
+//   // printf("Execute: %s\n", (pte & PTE_X) ? "Yes" : "No");
+//   // printf("User Accessible: %s\n", (pte & PTE_U) ? "Yes" : "No");
+//   // printf("Accessed: %s\n", (pte & PTE_A) ? "Yes" : "No");
+//   // printf("Swapped Out: %s\n", (pte & PTE_PG) ? "Yes" : "No");
+// }
+
+// static int is_address_valid(struct proc* p, char* addr, int write) {
+//   pte_t* pte = walk(p->pagetable, (uint64)addr, 0);
+//   if (pte == 0 || !(*pte & PTE_V) || (write && !(*pte & PTE_W))) {
+//     // Invalid memory address or insufficient permissions
+//     return 0;
+//   }
+//   // Memory address is valid
+//   return 1;
+// }
+
+/// @brief Moves a page from memory to swap file or from swap file to memory
+/// @param p 
+/// @param va starting address in virtual memory
+/// @param place_on_file starting address in swap file
+/// @param direction 0 for memory->file and 1 for file->memory
+/// @return 0 for success and -1 for failure
+static int
+move_page(struct proc* p, uint64 va, uint place_on_file, int direction)
+{
+  int part_size = PGSIZE / 32;
+  int cur_offset = 0;
+  while (cur_offset < PGSIZE)
+  {
+    uint64 cur_address = va + cur_offset;
+    place_on_file += cur_offset;
+    char buf[part_size];
+    if (direction == 0) {
+      //case 1: memory->file
+      if (copyin(p->pagetable, buf, cur_address, part_size) < 0) {
+        return -1;
+      }
+      if (writeToSwapFile(p, buf, place_on_file, part_size) < 0) {
+        return -1;
+      }
+    }
+    else {
+      //case 2: file->memory
+      if (readFromSwapFile(p, buf, place_on_file, part_size) < 0) {
+        return -1;
+      }
+      if (copyout(p->pagetable, cur_address, buf, part_size) < 0) {
+        return -1;
+      }
+    }
+    cur_offset += part_size;
+  }
+  return 0;
+}
+
+
+void
+update_counters()
+{
+  struct proc* p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pid > 2 && p->state >= SLEEPING && p->state <= RUNNING) {
+      pte_t* pte;
+      for (int i = 0; i < MAX_TOTAL_PAGES; i++)
+      {
+        struct page page = p->pages[i];
+        if (!page.in_use) {
+          continue;
+        }
+        pte = walk(p->pagetable, page.va, 0);
+        if (!((*pte & PTE_PG) && (*pte & PTE_V))) {
+          continue;
+        }
+        page.access_counter >>= 1;
+        if (*pte & PTE_A) {
+          *pte &= ~PTE_A;
+          page.access_counter |= (1 << 31);
+        }
+      }
+
+    }
+    release(&p->lock);
+  }
+}
+
+struct spinlock time_lock;
+int time = 0;
+
+int get_time() {
+  int t;
+  if (time == 0) {
+    initlock(&time_lock, "time_lock");
+  }
+  acquire(&time_lock);
+  t = time++;
+  release(&time_lock);
+  return t;
+}
+
+struct page*
+  choose_page(struct proc* p)
+{
+  printf("inside choose page\n");
+#if NFUA
+  return choose_page_NFUA(p);
+#endif
+#if LAPA
+  return choose_page_LAPA(p);
+#endif
+#if SCFIFO
+  return choose_page_SCFIFO(p);
+#endif
+
+  return 0;
+}
+
+struct page*
+  choose_page_NFUA(struct proc* p)
+{
+  int min_counter = -1;
+  struct page* res;
+  struct page* page;
+  for (page = p->pages; page < &p->pages[MAX_TOTAL_PAGES]; page++) {
+
+    if (min_counter == -1 || page->access_counter < min_counter) {
+      res = page;
+      min_counter = page->access_counter;
+    }
+
+  }
+  if (min_counter == -1) {
+    return 0;
+  }
+  return res;
+}
+
+struct page*
+  choose_page_LAPA(struct proc* p)
+{
+  int num_ones = -1;
+  struct page* page;
+  for (page = p->pages; page < &p->pages[MAX_TOTAL_PAGES]; page++) {
+
+    int count = count_ones(page->access_counter);
+
+    if (num_ones == -1 || count < num_ones) {
+      num_ones = count;
+    }
+  }
+
+  int min_counter = -1;
+  struct page* res;
+
+  for (page = p->pages; page < &p->pages[MAX_TOTAL_PAGES]; page++) {
+
+    int count = count_ones(page->access_counter);
+    if (count > num_ones) {
+      continue;
+    }
+    if (min_counter == -1 || page->access_counter < min_counter) {
+      res = page;
+      min_counter = page->access_counter;
+    }
+  }
+
+  if (min_counter == -1) {
+    return 0;
+  }
+
+  return res;
+}
+
+struct page*
+  choose_page_SCFIFO(struct proc* p)
+{
+  int min_counter = -1;
+  struct page* res;
+  struct page* page;
+
+  for (page = p->pages; page < &p->pages[MAX_TOTAL_PAGES]; page++) {
+    if ((min_counter == -1) || (page->creation_time < min_counter)) {
+      res = page;
+      min_counter = page->creation_time;
+    }
+  }
+
+  pte_t* pte = walk(p->pagetable, page->va, 0);
+  if (*pte & PTE_A) {
+    *pte &= ~PTE_A;
+    return choose_page_SCFIFO(p);
+  }
+  return res;
+}
+
+static int
+count_ones(int num)
+{
+  int count = 0;
+
+  while (num != 0) {
+    if (num & 1) {
+      count++;
+    }
+    num >>= 1; // Right shift by 1 bit
+  }
+
+  return count;
 }

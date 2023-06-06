@@ -184,22 +184,33 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for (a = va; a < va + npages * PGSIZE; a += PGSIZE) {
     if ((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    // if ((*pte & PTE_V) == 0)
-    //   panic("uvmunmap: not mapped");
+
+#ifndef NONE
     if (((*pte & PTE_V) == 0) && ((*pte & PTE_PG) == 0))
       panic("uvmunmap: not mapped");
+#endif
+
+#if NONE
+    if ((*pte & PTE_V) == 0)
+      panic("uvmunmap: not mapped");
+#endif
+
     if (PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if (do_free) {
+    if (do_free && ((*pte & PTE_PG) == 0)) {
+
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+
+    *pte = 0;
+#ifndef NONE   
     struct page* page;
-    if((page = get_page(myproc(), a)) != 0){
+    if ((page = get_page(myproc(), a)) != 0) {
       page->in_use = 0;
       page->va = 0;
     }
-    *pte = 0;
+#endif
   }
 }
 
@@ -239,30 +250,33 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 {
   char* mem;
   uint64 a;
+#ifndef NONE
   struct proc* p = myproc();
+#endif
   if (newsz < oldsz)
     return oldsz;
 
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE) {
+#ifndef NONE
     if (p->pid > 2) {
-
       if (p->num_total_pages >= MAX_TOTAL_PAGES) {
-        return 0;
+        panic("uvmalloc: no memory left");
       }
 
       if (p->num_physical_pages >= MAX_PSYC_PAGES) {
-        if(swap_out(p) < 0)
+        if (swap_out(p) < 0)
           return 0;
       }
     }
-
+#endif
     mem = kalloc();
     if (mem == 0) {
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
     memset(mem, 0, PGSIZE);
+
     if (mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R | PTE_U | xperm) != 0) {
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
@@ -270,11 +284,11 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     }
 
     pte_t* pte = walk(pagetable, a, 0);
-    if(!(*pte & PTE_V)){
+    if (!(*pte & PTE_V)) {
       printf("invalid page in uvmalloc");
       return 0;
     }
-
+#ifndef NONE
     if (p->pid > 2) {
       struct page* new_page;
       if ((new_page = get_unused_page(p)) == 0) {
@@ -282,20 +296,18 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
         uvmdealloc(pagetable, a, oldsz);
         return 0;
       }
-
-      // pte = walk(pagetable, a, 0);
-      // if(!(*pte & PTE_V)){
-      //   printf("invalid page in uvmalloc");
-      //   return 0;
-      // }
-
-
+#if LAPA
+      new_page->access_counter = 0xFFFFFFFF;
+#endif     
+#if NFUA
+      new_page->access_counter = 0;
+#endif
       new_page->va = a;
       new_page->in_use = 1;
       p->num_physical_pages++;
       p->num_total_pages++;
     }
-
+#endif
   }
   return newsz;
 }
@@ -366,8 +378,22 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for (i = 0; i < sz; i += PGSIZE) {
     if ((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if ((*pte & PTE_V) == 0)
+    if ((*pte & PTE_V) == 0) {
+#ifndef NONE
+      if (*pte & PTE_PG) {
+        pte_t* new_pte;
+        new_pte = walk(new, i, 0);
+        *new_pte &= ~PTE_V;
+        *new_pte |= PTE_PG;
+        *new_pte |= PTE_FLAGS(*pte);
+      }
+      else {
+        panic("uvmcopy: page not present");
+      }
+#else
       panic("uvmcopy: page not present");
+#endif
+    }
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if ((mem = kalloc()) == 0)

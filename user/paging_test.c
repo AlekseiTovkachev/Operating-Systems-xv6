@@ -21,6 +21,9 @@ void test() {
     // Access the pages to trigger page faults
     pages[i][0] = 'a';
   }
+  // int pid = getpid();
+  // printf("pid = %d\n", pid);
+  // malloc(256);
   for (int i = 0; i < NUM_PAGES; i++) {
     printf("page number: %d, text: %s\n", i, pages[i]);
   }

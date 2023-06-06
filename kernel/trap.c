@@ -75,9 +75,10 @@ usertrap(void)
       printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
       setkilled(p);
     }
-  } 
+  }
   else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("usertrap(): scause %d\n", r_scause());
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     setkilled(p);
   }
@@ -155,6 +156,7 @@ kerneltrap()
 
   if ((which_dev = devintr()) == 0) {
     printf("scause %p\n", scause);
+    printf("scause %d\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
     panic("kerneltrap");
   }

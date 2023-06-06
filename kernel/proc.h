@@ -82,7 +82,9 @@ struct trapframe {
 struct page {
   int in_use;
   uint64 va;
-  // uint placeOnFile; // -1 if in physical memory
+  uint placeOnFile;
+  uint creation_time;
+  uint access_counter;
 };
 
 
