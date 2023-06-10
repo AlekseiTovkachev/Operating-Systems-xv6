@@ -90,15 +90,16 @@ sys_uptime(void)
   return xticks;
 }
 
-/// @brief 
-/// @param int fd  
-/// @param int offset 
-/// @param int whence 
-/// @return 
 uint64
 sys_seek(void)
 {
-  // from here you can call other function in the kernel
-  // from proc.c or trap.c and many others places
-  return 0;
+  int fd;
+  int offset;
+  int whence;
+
+  argint(0, &fd);
+  argint(1, &offset);
+  argint(2, &whence);
+  
+  return fileseek((struct file*)&fd, offset, whence);
 }
