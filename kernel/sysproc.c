@@ -89,3 +89,16 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+/// @brief 
+/// @param int fd  
+/// @param int offset 
+/// @param int whence 
+/// @return 
+uint64
+sys_seek(void)
+{
+  // from here you can call other function in the kernel
+  // from proc.c or trap.c and many others places
+  return 0;
+}
