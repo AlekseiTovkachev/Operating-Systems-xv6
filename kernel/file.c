@@ -193,44 +193,42 @@ filewrite(struct file* f, uint64 addr, int n)
 /// @param offset 
 /// @param whence 
 /// @return 0 on success, -1 on failure
-int fileseek(struct file* fd, int offset, int whence) {
-
-  acquire(&ftable.lock);
-  int found = 0;
-  struct file* f;
-  for (f = ftable.file; f < ftable.file + NFILE; f++) {
-    if (f == fd)
-      found = 1;
-  }
-  release(&ftable.lock);
-  if (!found)
-    return -1;
+int fileseek(struct file* f, int offset, int whence) {
 
   struct stat st;
-  filestat(fd, (uint64)&st);
-
-  if (fd->type != FD_INODE) {
+  
+  if (f->type != FD_INODE) {
     return -1;
   }
+
+  ilock(f->ip);
+  stati(f->ip, &st);
+  iunlock(f->ip);
+
+  // printf("DEBUG: current offset: %d\n", f->off);
+  // printf("DEBUG: offset argument: %d\n", offset);
+  // printf("DEBUG: size: %d\n", st.size);
+
 
   if (whence == SEEK_SET) {
     if(offset < 0)
-      fd->off = 0;
+      f->off = 0;
     else if (offset > st.size)
-      fd->off = st.size;
+      f->off = st.size;
     else
-      fd->off = offset;
+      f->off = offset;
 
     return 0;
   }
-
+  
+  int sum = f->off + offset;
   if (whence == SEEK_CUR) {    
-    if ((fd->off + offset) < 0)
-      fd->off = 0;
-    else if ((fd->off + offset) > st.size)
-      fd->off = st.size;
+    if (sum < 0)
+      f->off = 0;
+    else if (sum > st.size)
+      f->off = st.size;
     else 
-      fd->off += offset;
+      f->off += offset;
     
     return 0;
   }

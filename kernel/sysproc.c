@@ -90,16 +90,4 @@ sys_uptime(void)
   return xticks;
 }
 
-uint64
-sys_seek(void)
-{
-  int fd;
-  int offset;
-  int whence;
 
-  argint(0, &fd);
-  argint(1, &offset);
-  argint(2, &whence);
-  
-  return fileseek((struct file*)&fd, offset, whence);
-}

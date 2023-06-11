@@ -12,6 +12,9 @@ main()
 {
   if(cpuid() == 0){
     consoleinit();
+
+    randominit();    
+
     printfinit();
     printf("\n");
     printf("xv6 kernel is booting\n");
