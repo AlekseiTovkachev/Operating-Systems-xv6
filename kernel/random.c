@@ -14,14 +14,14 @@
 uint8 lfsr;
 static struct spinlock lock;
 uint8 lfsr_char();
-//
-// user write()s to the random go here.
-//
+
+
 int
 randomwrite(int user_src, uint64 src, int n)
 {
   if(n == 1){
-    uint8 byte = *(char*)src;
+    uint8 byte;
+    copyin(myproc()->pagetable, (char*)&byte, src, 1);
     acquire(&lock);
     lfsr = byte;
     release(&lock);
@@ -30,12 +30,6 @@ randomwrite(int user_src, uint64 src, int n)
   return -1;
 }
 
-//
-// user read()s from the console go here.
-// copy (up to) a whole input line to dst.
-// user_dist indicates whether dst is a user
-// or kernel address.
-//
 int
 randomread(int user_dst, uint64 dst, int n)
 {
