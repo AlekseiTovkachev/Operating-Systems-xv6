@@ -196,7 +196,7 @@ filewrite(struct file* f, uint64 addr, int n)
 int fileseek(struct file* f, int offset, int whence) {
 
   struct stat st;
-  
+
   if (f->type != FD_INODE) {
     return -1;
   }
@@ -211,25 +211,31 @@ int fileseek(struct file* f, int offset, int whence) {
 
 
   if (whence == SEEK_SET) {
-    if(offset < 0)
+
+    ilock(f->ip);
+    if (offset < 0)
       f->off = 0;
     else if (offset > st.size)
       f->off = st.size;
     else
       f->off = offset;
+    iunlock(f->ip);
 
     return 0;
   }
-  
+
   int sum = f->off + offset;
-  if (whence == SEEK_CUR) {    
+  if (whence == SEEK_CUR) {
+
+    ilock(f->ip);
     if (sum < 0)
       f->off = 0;
     else if (sum > st.size)
       f->off = st.size;
-    else 
+    else
       f->off += offset;
-    
+    iunlock(f->ip);
+
     return 0;
   }
 
